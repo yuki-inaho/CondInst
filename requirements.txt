@@ -1,0 +1,6 @@
+torch==1.7.1
+torchvision==0.8.2
+opencv-python==4.5.1.48
+numpy==1.19.5
+labelme==4.5.7
+qtpy==1.9.0
