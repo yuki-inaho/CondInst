@@ -1,0 +1,27 @@
+_BASE_: "../Base-FCOS.yaml"
+MODEL:
+  WEIGHTS: "https://www.dropbox.com/s/q98pypf96rhtd8y/vovnet39_ese_detectron2.pth?dl=1"
+  BACKBONE:
+    NAME: "build_fcos_vovnet_fpn_backbone"
+    FREEZE_AT: 0
+  VOVNET:
+    CONV_BODY : "V-39-eSE"
+    OUT_FEATURES: ["stage3", "stage4", "stage5"]
+  FPN:
+    IN_FEATURES: ["stage3", "stage4", "stage5"]
+  FCOS:
+    NUM_CLASSES: 3
+INPUT:
+  MIN_SIZE_TRAIN: (512,)
+DATASETS:
+  TRAIN: ("fruits_nuts",)
+  TEST: ("fruits_nuts", )
+SOLVER:
+  BASE_LR: 0.001  
+  NESTEROV: True
+  IMS_PER_BATCH: 4
+  MAX_ITER: 100
+  AMP:
+    ENABLED: True
+OUTPUT_DIR: "output/fcos/V_39_ms_3x"
+CUDNN_BENCHMARK: True
