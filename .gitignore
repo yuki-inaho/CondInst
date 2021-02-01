@@ -1,5 +1,8 @@
+.vscode/settings.json
+.venv/
 R-50.pkl
 detectron2/
 pyproject.toml
 *.pyc
 output/
+*/__pycache__/
