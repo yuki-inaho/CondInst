@@ -79,65 +79,6 @@ class Trainer(DefaultTrainer):
     `build_train_loader` method.
     """
 
-    def __init__(self, cfg):
-        #super(Trainer, self).__init__(cfg)
-        """
-        Args:
-            cfg (CfgNode):
-        Use the custom checkpointer, which loads other backbone models
-        with matching heuristics.
-        """
-        # Assume these objects must be constructed in this order.
-        model = self.build_model(cfg)
-        optimizer = self.build_optimizer(cfg, model)
-        data_loader = self.build_train_loader(cfg)
-
-        # For training, wrap with DDP. But don't need this for inference.
-        '''
-        if comm.get_world_size() > 1:
-            model = DistributedDataParallel(
-                model, device_ids=[comm.get_local_rank()], broadcast_buffers=False
-            )
-        '''
-
-        super(DefaultTrainer, self).__init__(model, data_loader, optimizer)
-        '''
-        This line is only worked on < the date of 9b5748947212b2eec091075e44e33c0f85b2b301
-
-        super(DefaultTrainer, self).__init__(model, data_loader, optimizer)
-        Traceback (most recent call last):
-        File "train_net_nuts.py", line 285, in <module>
-            args=(args,),
-        File "/home/inaho/Project/CondInst/detectron2/detectron2/engine/launch.py", line 62, in launch
-            main_func(*args)
-        File "train_net_nuts.py", line 265, in main
-            trainer = Trainer(cfg)
-        File "train_net_nuts.py", line 99, in __init__
-            super(DefaultTrainer, self).__init__(model, data_loader, optimizer)
-        TypeError: __init__() takes 1 positional argument but 4 were given
-        '''
-
-        #self.model = model
-        #self.optimizer = optimizer
-        #self.data_loader = data_loader
-
-        self.scheduler = self.build_lr_scheduler(cfg, optimizer)
-        # Assume no other objects need to be checkpointed.
-        # We can later make it checkpoint the stateful hooks
-        self.checkpointer = AdetCheckpointer(
-            # Assume you want to save checkpoints together with logs/statistics
-            model,
-            cfg.OUTPUT_DIR,
-            optimizer=optimizer,
-            scheduler=self.scheduler,
-        )
-
-        self.start_iter = 0
-        self.max_iter = cfg.SOLVER.MAX_ITER
-        self.cfg = cfg
-
-        self.register_hooks(self.build_hooks())
-
     def train_loop(self, start_iter: int, max_iter: int):
         """
         Args:
@@ -179,7 +120,7 @@ class Trainer(DefaultTrainer):
         DatasetMapper, which adds categorical labels as a semantic mask.
         """
 
-        register_coco_instances("fruits_nuts", {}, "./dataset_labelme/trainval.json", "./dataset_labelme/images")
+        register_coco_instances("fruits_nuts", {}, "./fruit_nuts/trainval.json", "./fruit_nuts/images")
         fruits_nuts_metadata = MetadataCatalog.get("fruits_nuts")
         mapper = DatasetMapper(cfg, True)
         return build_detection_train_loader(cfg, mapper)
@@ -212,11 +153,6 @@ class Trainer(DefaultTrainer):
         if evaluator_type == "coco_panoptic_seg":
             evaluator_list.append(COCOPanopticEvaluator(
                 dataset_name, output_folder))
-        if evaluator_type == "cityscapes":
-            assert (
-                torch.cuda.device_count() >= comm.get_rank()
-            ), "CityscapesEvaluator currently do not work with multiple machines."
-            return CityscapesEvaluator(dataset_name)
         if evaluator_type == "pascal_voc":
             return PascalVOCDetectionEvaluator(dataset_name)
         if evaluator_type == "lvis":
