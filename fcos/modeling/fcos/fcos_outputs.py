@@ -9,7 +9,8 @@ from fvcore.nn import sigmoid_focal_loss_jit
 
 from fcos.utils.comm import reduce_sum
 from fcos.layers import ml_nms
-#from detectron2.layers import interpolate
+
+# from detectron2.layers import interpolate
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ Naming convention:
     
 """
 
+
 def aligned_bilinear(tensor, factor):
     assert tensor.dim() == 4
     assert factor >= 1
@@ -49,53 +51,47 @@ def aligned_bilinear(tensor, factor):
     tensor = F.pad(tensor, pad=(0, 1, 0, 1), mode="replicate")
     oh = factor * h + 1
     ow = factor * w + 1
-    tensor = F.interpolate(
-        tensor, size=(oh, ow),
-        mode='bilinear',
-        align_corners=True
-    )
-    tensor = F.pad(
-        tensor, pad=(factor // 2, 0, factor // 2, 0),
-        mode="replicate"
-    )
+    tensor = F.interpolate(tensor, size=(oh, ow), mode="bilinear", align_corners=True)
+    tensor = F.pad(tensor, pad=(factor // 2, 0, factor // 2, 0), mode="replicate")
 
-    return tensor[:, :, :oh - 1, :ow - 1]
-        
+    return tensor[:, :, : oh - 1, : ow - 1]
+
 
 def compute_ctrness_targets(reg_targets):
     if len(reg_targets) == 0:
         return reg_targets.new_zeros(len(reg_targets))
     left_right = reg_targets[:, [0, 2]]
     top_bottom = reg_targets[:, [1, 3]]
-    ctrness = (left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * \
-                 (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+    ctrness = (left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * (
+        top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0]
+    )
     return torch.sqrt(ctrness)
 
 
 class FCOSOutputs(object):
     def __init__(
-            self,
-            images,
-            locations,
-            logits_pred,
-            reg_pred,
-            ctrness_pred,
-            focal_loss_alpha,
-            focal_loss_gamma,
-            iou_loss,
-            center_sample,
-            sizes_of_interest,
-            strides,
-            radius,
-            num_classes,
-            pre_nms_thresh,
-            pre_nms_top_n,
-            nms_thresh,
-            fpn_post_nms_top_n,
-            thresh_with_ctr,
-            controllers, 
-            masks,
-            gt_instances=None,
+        self,
+        images,
+        locations,
+        logits_pred,
+        reg_pred,
+        ctrness_pred,
+        focal_loss_alpha,
+        focal_loss_gamma,
+        iou_loss,
+        center_sample,
+        sizes_of_interest,
+        strides,
+        radius,
+        num_classes,
+        pre_nms_thresh,
+        pre_nms_top_n,
+        nms_thresh,
+        fpn_post_nms_top_n,
+        thresh_with_ctr,
+        controllers,
+        masks,
+        gt_instances=None,
     ):
         self.logits_pred = logits_pred
         self.reg_pred = reg_pred
@@ -123,20 +119,16 @@ class FCOSOutputs(object):
         self.masks = masks
 
     def _transpose(self, training_targets, num_loc_list):
-        '''
+        """
         This function is used to transpose image first training targets to level first ones
         :return: level first training targets
-        '''
+        """
         for im_i in range(len(training_targets)):
-            training_targets[im_i] = torch.split(
-                training_targets[im_i], num_loc_list, dim=0
-            )
+            training_targets[im_i] = torch.split(training_targets[im_i], num_loc_list, dim=0)
 
         targets_level_first = []
         for targets_per_level in zip(*training_targets):
-            targets_level_first.append(
-                torch.cat(targets_per_level, dim=0)
-            )
+            targets_level_first.append(torch.cat(targets_per_level, dim=0))
         return targets_level_first
 
     def _get_ground_truth(self):
@@ -147,21 +139,15 @@ class FCOSOutputs(object):
         loc_to_size_range = []
         for l, loc_per_level in enumerate(self.locations):
             loc_to_size_range_per_level = loc_per_level.new_tensor(self.sizes_of_interest[l])
-            loc_to_size_range.append(
-                loc_to_size_range_per_level[None].expand(num_loc_list[l], -1)
-            )
+            loc_to_size_range.append(loc_to_size_range_per_level[None].expand(num_loc_list[l], -1))
 
         loc_to_size_range = torch.cat(loc_to_size_range, dim=0)
         locations = torch.cat(self.locations, dim=0)
 
-        training_targets = self.compute_targets_for_locations(
-            locations, self.gt_instances, loc_to_size_range
-        )
+        training_targets = self.compute_targets_for_locations(locations, self.gt_instances, loc_to_size_range)
 
         # transpose im first training_targets to level first ones
-        training_targets = {
-            k: self._transpose(v, num_loc_list) for k, v in training_targets.items()
-        }
+        training_targets = {k: self._transpose(v, num_loc_list) for k, v in training_targets.items()}
 
         # we normalize reg_targets by FPN's strides here
         reg_targets = training_targets["reg_targets"]
@@ -230,17 +216,16 @@ class FCOSOutputs(object):
 
             if self.center_sample:
                 is_in_boxes = self.get_sample_region(
-                    bboxes, self.strides, self.num_loc_list,
-                    xs, ys, radius=self.radius
+                    bboxes, self.strides, self.num_loc_list, xs, ys, radius=self.radius
                 )
             else:
                 is_in_boxes = reg_targets_per_im.min(dim=2)[0] > 0
 
             max_reg_targets_per_im = reg_targets_per_im.max(dim=2)[0]
             # limit the regression range for each location
-            is_cared_in_the_level = \
-                (max_reg_targets_per_im >= size_ranges[:, [0]]) & \
-                (max_reg_targets_per_im <= size_ranges[:, [1]])
+            is_cared_in_the_level = (max_reg_targets_per_im >= size_ranges[:, [0]]) & (
+                max_reg_targets_per_im <= size_ranges[:, [1]]
+            )
 
             locations_to_gt_area = area[None].repeat(len(locations), 1)
             locations_to_gt_area[is_in_boxes == 0] = INF
@@ -258,7 +243,7 @@ class FCOSOutputs(object):
             labels.append(labels_per_im)
             reg_targets.append(reg_targets_per_im)
             matched_idxes.append(locations_to_gt_inds)
-            im_idxes.append(torch.tensor([im_i]*len(labels_per_im)).to(locations_to_gt_inds.device))
+            im_idxes.append(torch.tensor([im_i] * len(labels_per_im)).to(locations_to_gt_inds.device))
         return {"labels": labels, "reg_targets": reg_targets, "matched_idxes": matched_idxes, "im_idxes": im_idxes}
 
     def losses(self):
@@ -270,7 +255,12 @@ class FCOSOutputs(object):
         """
 
         training_targets, locations = self._get_ground_truth()
-        labels, reg_targets, matched_idxes, im_idxes = training_targets["labels"], training_targets["reg_targets"], training_targets["matched_idxes"], training_targets["im_idxes"]
+        labels, reg_targets, matched_idxes, im_idxes = (
+            training_targets["labels"],
+            training_targets["reg_targets"],
+            training_targets["matched_idxes"],
+            training_targets["im_idxes"],
+        )
 
         # Collect all logits and regression predictions over feature maps
         # and images to arrive at the same shape as the labels and targets
@@ -280,46 +270,59 @@ class FCOSOutputs(object):
                 # Reshape: (N, C, Hi, Wi) -> (N, Hi, Wi, C) -> (N*Hi*Wi, C)
                 x.permute(0, 2, 3, 1).reshape(-1, self.num_classes)
                 for x in self.logits_pred
-            ], dim=0,)
+            ],
+            dim=0,
+        )
         reg_pred = cat(
             [
                 # Reshape: (N, B, Hi, Wi) -> (N, Hi, Wi, B) -> (N*Hi*Wi, B)
                 x.permute(0, 2, 3, 1).reshape(-1, 4)
                 for x in self.reg_pred
-            ], dim=0,)
+            ],
+            dim=0,
+        )
         ctrness_pred = cat(
             [
                 # Reshape: (N, 1, Hi, Wi) -> (N*Hi*Wi,)
-                x.reshape(-1) for x in self.ctrness_pred
-            ], dim=0,)
+                x.reshape(-1)
+                for x in self.ctrness_pred
+            ],
+            dim=0,
+        )
 
         labels = cat(
             [
                 # Reshape: (N, 1, Hi, Wi) -> (N*Hi*Wi,)
-                x.reshape(-1) for x in labels
-            ], dim=0,)
+                x.reshape(-1)
+                for x in labels
+            ],
+            dim=0,
+        )
 
         reg_targets = cat(
             [
                 # Reshape: (N, Hi, Wi, 4) -> (N*Hi*Wi, 4)
-                x.reshape(-1, 4) for x in reg_targets
-            ], dim=0,)
-        
+                x.reshape(-1, 4)
+                for x in reg_targets
+            ],
+            dim=0,
+        )
+
         matched_idxes = cat(
-            [
-                x.reshape(-1) for x in matched_idxes
-            ], dim=0,)
+            [x.reshape(-1) for x in matched_idxes],
+            dim=0,
+        )
 
         im_idxes = cat(
-            [
-                x.reshape(-1) for x in im_idxes
-            ], dim=0,)
+            [x.reshape(-1) for x in im_idxes],
+            dim=0,
+        )
 
         controllers_pred = cat(
-            [
-                x.permute(0, 2, 3, 1).reshape(-1, 169) for x in self.controllers
-            ], dim=0,)
-        locations = cat([locations//self.strides[0]]*4)
+            [x.permute(0, 2, 3, 1).reshape(-1, 169) for x in self.controllers],
+            dim=0,
+        )
+        locations = cat([locations // self.strides[0]] * 4)
 
         return self.fcos_losses(
             labels,
@@ -333,28 +336,20 @@ class FCOSOutputs(object):
             self.iou_loss,
             matched_idxes,
             im_idxes,
-            locations
+            locations,
         )
 
     def predict_proposals(self):
         sampled_boxes = []
 
-        bundle = (
-            self.locations, self.logits_pred,
-            self.reg_pred, self.ctrness_pred,
-            self.strides
-        )
+        bundle = (self.locations, self.logits_pred, self.reg_pred, self.ctrness_pred, self.strides)
 
         for i, (l, o, r, c, s) in enumerate(zip(*bundle)):
             # recall that during training, we normalize regression targets with FPN's stride.
             # we denormalize them here.
             r = r * s
             controller = self.controllers[i]
-            sampled_boxes.append(
-                self.forward_for_single_feature_map(
-                    l, o, r, c, controller, self.image_sizes
-                )
-            )
+            sampled_boxes.append(self.forward_for_single_feature_map(l, o, r, c, controller, self.image_sizes))
 
         boxlists = list(zip(*sampled_boxes))
         boxlists = [Instances.cat(boxlist) for boxlist in boxlists]
@@ -372,43 +367,42 @@ class FCOSOutputs(object):
         y, x = torch.meshgrid(y_range, x_range)
         x = x.unsqueeze(0).unsqueeze(0)
         y = y.unsqueeze(0).unsqueeze(0)
-        grid = torch.cat([x,y],1)
-        #masks_feat = torch.cat((self.masks, x_map, y_map), dim=1)
-        #o_h = int(h * self.strides[0])
-        #o_w = int(w * self.strides[0])        
+        grid = torch.cat([x, y], 1)
+        # masks_feat = torch.cat((self.masks, x_map, y_map), dim=1)
+        # o_h = int(h * self.strides[0])
+        # o_w = int(w * self.strides[0])
         for im in range(N):
             boxlist = boxlists[im]
             input_h, input_w = boxlist.image_size
             pred_boxes = boxlists[im].pred_boxes.tensor / 8
             # check if height and width is correct
-            center_x = torch.clamp((pred_boxes[:,0] + pred_boxes[:,2])/2, min=0, max=w-1).long()
-            center_y = torch.clamp((pred_boxes[:,1] + pred_boxes[:,3])/2, min=0, max=h-1).long()
+            center_x = torch.clamp((pred_boxes[:, 0] + pred_boxes[:, 2]) / 2, min=0, max=w - 1).long()
+            center_y = torch.clamp((pred_boxes[:, 1] + pred_boxes[:, 3]) / 2, min=0, max=h - 1).long()
             offset_x = x_range[center_x].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
             offset_y = y_range[center_y].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-            offset_xy = torch.cat([offset_x,offset_y],1)
-            coords_feat = grid-offset_xy
+            offset_xy = torch.cat([offset_x, offset_y], 1)
+            coords_feat = grid - offset_xy
             mask_feat = self.masks[None, im]
             ins_num = boxlist.controllers.shape[0]
-            mask_feat = torch.cat([mask_feat]*ins_num,dim=0)
-            comb_feat = torch.cat((mask_feat, coords_feat),dim=1).view(1,-1,h,w)
-            weight1, bias1, weight2, bias2, weight3, bias3 = torch.split(boxlist.controllers,[80, 8, 64, 8, 8, 1], dim=1)
-            bias1, bias2, bias3 = bias1.flatten(), bias2.flatten(),bias3.flatten()
-            weight1 = weight1.reshape(-1,8,10).reshape(-1,10).unsqueeze(-1).unsqueeze(-1)
-            weight2 = weight2.reshape(-1,8,8).reshape(-1,8).unsqueeze(-1).unsqueeze(-1)
+            mask_feat = torch.cat([mask_feat] * ins_num, dim=0)
+            comb_feat = torch.cat((mask_feat, coords_feat), dim=1).view(1, -1, h, w)
+            weight1, bias1, weight2, bias2, weight3, bias3 = torch.split(
+                boxlist.controllers, [80, 8, 64, 8, 8, 1], dim=1
+            )
+            bias1, bias2, bias3 = bias1.flatten(), bias2.flatten(), bias3.flatten()
+            weight1 = weight1.reshape(-1, 8, 10).reshape(-1, 10).unsqueeze(-1).unsqueeze(-1)
+            weight2 = weight2.reshape(-1, 8, 8).reshape(-1, 8).unsqueeze(-1).unsqueeze(-1)
             weight3 = weight3.unsqueeze(-1).unsqueeze(-1)
-            conv1 = F.conv2d(comb_feat, weight1, bias1, groups = ins_num).relu()
-            conv2 = F.conv2d(conv1, weight2, bias2, groups = ins_num).relu()
-            masks_per_image = F.conv2d(conv2, weight3, bias3, groups = ins_num)
-            #masks = interpolate(masks_per_image, size = (o_h,o_w), mode="bilinear", align_corners=False).sigmoid()
+            conv1 = F.conv2d(comb_feat, weight1, bias1, groups=ins_num).relu()
+            conv2 = F.conv2d(conv1, weight2, bias2, groups=ins_num).relu()
+            masks_per_image = F.conv2d(conv2, weight3, bias3, groups=ins_num)
+            # masks = interpolate(masks_per_image, size = (o_h,o_w), mode="bilinear", align_corners=False).sigmoid()
             masks = aligned_bilinear(masks_per_image, self.strides[0]).sigmoid()
-            masks = masks[:, :, :input_h, :input_w].permute(1,0,2,3)
+            masks = masks[:, :, :input_h, :input_w].permute(1, 0, 2, 3)
             boxlist.pred_masks = masks
         return boxlists
 
-    def forward_for_single_feature_map(
-            self, locations, box_cls,
-            reg_pred, ctrness, controller, image_sizes
-    ):
+    def forward_for_single_feature_map(self, locations, box_cls, reg_pred, ctrness, controller, image_sizes):
         N, C, H, W = box_cls.shape
 
         # put in the same format as locations
@@ -450,19 +444,21 @@ class FCOSOutputs(object):
             per_pre_nms_top_n = pre_nms_top_n[i]
 
             if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
-                per_box_cls, top_k_indices = \
-                    per_box_cls.topk(per_pre_nms_top_n, sorted=False)
+                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
                 per_class = per_class[top_k_indices]
                 per_box_regression = per_box_regression[top_k_indices]
                 per_locations = per_locations[top_k_indices]
                 per_controller = per_controller[top_k_indices]
 
-            detections = torch.stack([
-                per_locations[:, 0] - per_box_regression[:, 0],
-                per_locations[:, 1] - per_box_regression[:, 1],
-                per_locations[:, 0] + per_box_regression[:, 2],
-                per_locations[:, 1] + per_box_regression[:, 3],
-            ], dim=1)
+            detections = torch.stack(
+                [
+                    per_locations[:, 0] - per_box_regression[:, 0],
+                    per_locations[:, 1] - per_box_regression[:, 1],
+                    per_locations[:, 0] + per_box_regression[:, 2],
+                    per_locations[:, 1] + per_box_regression[:, 3],
+                ],
+                dim=1,
+            )
 
             boxlist = Instances(image_sizes[i])
             boxlist.pred_boxes = Boxes(detections)
@@ -486,10 +482,7 @@ class FCOSOutputs(object):
             # Limit to max_per_image detections **over all classes**
             if number_of_detections > self.fpn_post_nms_top_n > 0:
                 cls_scores = result.scores
-                image_thresh, _ = torch.kthvalue(
-                    cls_scores.cpu(),
-                    number_of_detections - self.fpn_post_nms_top_n + 1
-                )
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
                 keep = cls_scores >= image_thresh.item()
                 keep = torch.nonzero(keep).squeeze(1)
                 result = result[keep]
@@ -506,22 +499,20 @@ class FCOSOutputs(object):
             n, h, w = mask_t.shape
             mask = mask_t.new_zeros((n, r_h, r_w))
             mask[:, :h, :w] = mask_t
-            #resized_mask = aligned_bilinear(mask.float().unsqueeze(0), m_h/r_h)[0].gt(0)
-            #resized_mask = interpolate(
+            # resized_mask = aligned_bilinear(mask.float().unsqueeze(0), m_h/r_h)[0].gt(0)
+            # resized_mask = interpolate(
             #    input=mask.float().unsqueeze(0), size=(m_h, m_w), mode="bilinear", align_corners=False,
             #    )[0].gt(0)
-            #masks.append(resized_mask)
+            # masks.append(resized_mask)
             masks.append(mask)
         return masks
 
-    def dice_loss(self,input, target):
-        smooth = 1.
+    def dice_loss(self, input, target):
+        smooth = 1.0
         iflat = input.contiguous().view(-1)
         tflat = target.contiguous().view(-1)
         intersection = (iflat * tflat).sum()
-        return 1 - ((2. * intersection + smooth) /((iflat*iflat).sum() + (tflat*tflat).sum() + smooth))
-
-
+        return 1 - ((2.0 * intersection + smooth) / ((iflat * iflat).sum() + (tflat * tflat).sum() + smooth))
 
     def fcos_losses(
         self,
@@ -536,7 +527,7 @@ class FCOSOutputs(object):
         iou_loss,
         matched_idxes,
         im_idxes,
-        locations
+        locations,
     ):
         num_classes = logits_pred.size(1)
         labels = labels.flatten()
@@ -551,13 +542,16 @@ class FCOSOutputs(object):
         class_target = torch.zeros_like(logits_pred)
         class_target[pos_inds, labels[pos_inds]] = 1
 
-        class_loss = sigmoid_focal_loss_jit(
-            logits_pred,
-            class_target,
-            alpha=focal_loss_alpha,
-            gamma=focal_loss_gamma,
-            reduction="sum",
-        ) / num_pos_avg
+        class_loss = (
+            sigmoid_focal_loss_jit(
+                logits_pred,
+                class_target,
+                alpha=focal_loss_alpha,
+                gamma=focal_loss_gamma,
+                reduction="sum",
+            )
+            / num_pos_avg
+        )
 
         reg_pred = reg_pred[pos_inds]
         reg_targets = reg_targets[pos_inds]
@@ -571,74 +565,64 @@ class FCOSOutputs(object):
         ctrness_targets_sum = ctrness_targets.sum()
         ctrness_norm = max(reduce_sum(ctrness_targets_sum).item() / num_gpus, 1e-6)
 
-        reg_loss = iou_loss(
-            reg_pred,
-            reg_targets,
-            ctrness_targets
-        ) / ctrness_norm
+        reg_loss = iou_loss(reg_pred, reg_targets, ctrness_targets) / ctrness_norm
 
-        ctrness_loss = F.binary_cross_entropy_with_logits(
-             ctrness_pred,
-             ctrness_targets,
-             reduction="sum"
-         ) / num_pos_avg
+        ctrness_loss = F.binary_cross_entropy_with_logits(ctrness_pred, ctrness_targets, reduction="sum") / num_pos_avg
 
         # for CondInst
         batch_ins = pos_inds.shape[0]
         N, C, h, w = self.masks.shape
-        center_x=torch.clamp(locations[:,0],min=0,max=w-1).long()
-        center_y=torch.clamp(locations[:,1],min=0,max=h-1).long()
+        center_x = torch.clamp(locations[:, 0], min=0, max=w - 1).long()
+        center_y = torch.clamp(locations[:, 1], min=0, max=h - 1).long()
         x_range = torch.linspace(-1, 1, w, device=self.masks.device)
         y_range = torch.linspace(-1, 1, h, device=self.masks.device)
         y, x = torch.meshgrid(y_range, x_range)
         x = x.unsqueeze(0).unsqueeze(0)
         y = y.unsqueeze(0).unsqueeze(0)
-        grid = torch.cat([x,y],1)
+        grid = torch.cat([x, y], 1)
         offset_x = x_range[center_x].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
         offset_y = y_range[center_y].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-        offset_xy = torch.cat([offset_x,offset_y],1)
-        coords_feat = grid-offset_xy        
+        offset_xy = torch.cat([offset_x, offset_y], 1)
+        coords_feat = grid - offset_xy
         masks_feat = self.masks
         r_h = int(h * self.strides[0])
         r_w = int(w * self.strides[0])
         targets_masks = [target_im.gt_masks.tensor for target_im in self.gt_instances]
         masks_t = self.prepare_masks(h, w, r_h, r_w, targets_masks)
         mask_loss = masks_feat[0].new_tensor(0.0)
-        batch_ins = im_idxes.shape[0] 
+        batch_ins = im_idxes.shape[0]
         # for each image
         for i in range(N):
-            inds = (im_idxes==i).nonzero().flatten()
+            inds = (im_idxes == i).nonzero().flatten()
             ins_num = inds.shape[0]
             if ins_num > 0:
                 controllers = controllers_pred[inds]
-                coord_feat=coords_feat[inds]
+                coord_feat = coords_feat[inds]
                 mask_feat = masks_feat[None, i]
-                mask_feat = torch.cat([mask_feat]*ins_num,dim=0)
-                comb_feat = torch.cat((mask_feat, coord_feat),dim=1).view(1,-1,h,w)
+                mask_feat = torch.cat([mask_feat] * ins_num, dim=0)
+                comb_feat = torch.cat((mask_feat, coord_feat), dim=1).view(1, -1, h, w)
                 weight1, bias1, weight2, bias2, weight3, bias3 = torch.split(controllers, [80, 8, 64, 8, 8, 1], dim=1)
                 bias1, bias2, bias3 = bias1.flatten(), bias2.flatten(), bias3.flatten()
-                weight1 = weight1.reshape(-1,8,10).reshape(-1,10).unsqueeze(-1).unsqueeze(-1)
-                weight2 = weight2.reshape(-1,8,8).reshape(-1,8).unsqueeze(-1).unsqueeze(-1)
+                weight1 = weight1.reshape(-1, 8, 10).reshape(-1, 10).unsqueeze(-1).unsqueeze(-1)
+                weight2 = weight2.reshape(-1, 8, 8).reshape(-1, 8).unsqueeze(-1).unsqueeze(-1)
                 weight3 = weight3.unsqueeze(-1).unsqueeze(-1)
-                conv1 = F.conv2d(comb_feat, weight1, bias1, groups = ins_num).relu()
-                conv2 = F.conv2d(conv1, weight2, bias2, groups = ins_num).relu()
-                masks_per_image = F.conv2d(conv2, weight3, bias3, groups = ins_num)
+                conv1 = F.conv2d(comb_feat, weight1, bias1, groups=ins_num).relu()
+                conv2 = F.conv2d(conv1, weight2, bias2, groups=ins_num).relu()
+                masks_per_image = F.conv2d(conv2, weight3, bias3, groups=ins_num)
                 masks_per_image = aligned_bilinear(masks_per_image, self.strides[0])[0].sigmoid()
                 for j in range(ins_num):
                     ind = inds[j]
                     mask_gt = masks_t[i][matched_idxes[ind]].float()
                     mask_pred = masks_per_image[j]
                     mask_loss += self.dice_loss(mask_pred, mask_gt)
-            
+
         if batch_ins > 0:
             mask_loss = mask_loss / batch_ins
-              
 
         losses = {
             "loss_fcos_cls": class_loss,
             "loss_fcos_loc": reg_loss,
             "loss_fcos_ctr": ctrness_loss,
-            "loss_mask": mask_loss
+            "loss_mask": mask_loss,
         }
         return losses, {}
-

@@ -30,6 +30,7 @@ class FCOS(nn.Module):
     """
     Implement FCOS (https://arxiv.org/abs/1904.01355).
     """
+
     def __init__(self, cfg, input_shape: Dict[str, ShapeSpec]):
         super().__init__()
         # fmt: off
@@ -105,9 +106,9 @@ class FCOS(nn.Module):
             self.nms_thresh,
             post_nms_topk,
             self.thresh_with_ctr,
-            controllers, 
+            controllers,
             masks,
-            gt_instances
+            gt_instances,
         )
 
         if self.training:
@@ -121,22 +122,13 @@ class FCOS(nn.Module):
         locations = []
         for level, feature in enumerate(features):
             h, w = feature.size()[-2:]
-            locations_per_level = self.compute_locations_per_level(
-                h, w, self.fpn_strides[level],
-                feature.device
-            )
+            locations_per_level = self.compute_locations_per_level(h, w, self.fpn_strides[level], feature.device)
             locations.append(locations_per_level)
         return locations
 
     def compute_locations_per_level(self, h, w, stride, device):
-        shifts_x = torch.arange(
-            0, w * stride, step=stride,
-            dtype=torch.float32, device=device
-        )
-        shifts_y = torch.arange(
-            0, h * stride, step=stride,
-            dtype=torch.float32, device=device
-        )
+        shifts_x = torch.arange(0, w * stride, step=stride, dtype=torch.float32, device=device)
+        shifts_y = torch.arange(0, h * stride, step=stride, dtype=torch.float32, device=device)
         shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
         shift_x = shift_x.reshape(-1)
         shift_y = shift_y.reshape(-1)
@@ -154,13 +146,12 @@ class FCOSHead(nn.Module):
         # TODO: Implement the sigmoid version first.
         self.num_classes = cfg.MODEL.FCOS.NUM_CLASSES
         self.fpn_strides = cfg.MODEL.FCOS.FPN_STRIDES
-        head_configs = {"cls": (cfg.MODEL.FCOS.NUM_CLS_CONVS,
-                                False),
-                        "bbox": (cfg.MODEL.FCOS.NUM_BOX_CONVS,
-                                 cfg.MODEL.FCOS.USE_DEFORMABLE),
-                        "share": (cfg.MODEL.FCOS.NUM_SHARE_CONVS,
-                                  cfg.MODEL.FCOS.USE_DEFORMABLE),
-                        "mask": (8,False)}          
+        head_configs = {
+            "cls": (cfg.MODEL.FCOS.NUM_CLS_CONVS, False),
+            "bbox": (cfg.MODEL.FCOS.NUM_BOX_CONVS, cfg.MODEL.FCOS.USE_DEFORMABLE),
+            "share": (cfg.MODEL.FCOS.NUM_SHARE_CONVS, cfg.MODEL.FCOS.USE_DEFORMABLE),
+            "mask": (8, False),
+        }
         norm = None if cfg.MODEL.FCOS.NORM == "none" else cfg.MODEL.FCOS.NORM
 
         in_channels = [s.channels for s in input_shape]
@@ -175,39 +166,17 @@ class FCOSHead(nn.Module):
             else:
                 conv_func = nn.Conv2d
             for i in range(num_convs):
-                tower.append(conv_func(
-                        in_channels, in_channels,
-                        kernel_size=3, stride=1,
-                        padding=1, bias=True
-                ))
+                tower.append(conv_func(in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=True))
                 if norm == "GN":
                     tower.append(nn.GroupNorm(32, in_channels))
                 tower.append(nn.ReLU())
-            self.add_module('{}_tower'.format(head),
-                            nn.Sequential(*tower))
+            self.add_module("{}_tower".format(head), nn.Sequential(*tower))
 
-        self.cls_logits = nn.Conv2d(
-            in_channels, self.num_classes,
-            kernel_size=3, stride=1,
-            padding=1
-        )
-        self.bbox_pred = nn.Conv2d(
-            in_channels, 4, kernel_size=3,
-            stride=1, padding=1
-        )
-        self.ctrness = nn.Conv2d(
-            in_channels, 1, kernel_size=3,
-            stride=1, padding=1
-        )
-        self.controller = nn.Conv2d(
-            in_channels, 169, kernel_size=3,
-            stride=1, padding=1
-        )
-        self.mask = nn.Conv2d(
-            in_channels, 8,
-            kernel_size=3, stride=1,
-            padding=1
-        )
+        self.cls_logits = nn.Conv2d(in_channels, self.num_classes, kernel_size=3, stride=1, padding=1)
+        self.bbox_pred = nn.Conv2d(in_channels, 4, kernel_size=3, stride=1, padding=1)
+        self.ctrness = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
+        self.controller = nn.Conv2d(in_channels, 169, kernel_size=3, stride=1, padding=1)
+        self.mask = nn.Conv2d(in_channels, 8, kernel_size=3, stride=1, padding=1)
 
         if cfg.MODEL.FCOS.USE_SCALE:
             self.scales = nn.ModuleList([Scale(init_value=1.0) for _ in self.fpn_strides])
@@ -215,10 +184,14 @@ class FCOSHead(nn.Module):
             self.scales = None
 
         for modules in [
-            self.cls_tower, self.bbox_tower,
-            self.share_tower, self.cls_logits,
-            self.bbox_pred, self.ctrness,
-            self.controller, self.mask, 
+            self.cls_tower,
+            self.bbox_tower,
+            self.share_tower,
+            self.cls_logits,
+            self.bbox_pred,
+            self.ctrness,
+            self.controller,
+            self.mask,
         ]:
             for l in modules.modules():
                 if isinstance(l, nn.Conv2d):
@@ -243,7 +216,7 @@ class FCOSHead(nn.Module):
 
             logits.append(self.cls_logits(cls_tower))
             ctrness.append(self.ctrness(bbox_tower))
-            controllers.append(self.controller(bbox_tower))            
+            controllers.append(self.controller(bbox_tower))
             reg = self.bbox_pred(bbox_tower)
             if self.scales is not None:
                 reg = self.scales[l](reg)
