@@ -1,13 +1,12 @@
 _BASE_: "Base-FCOS.yaml"
 MODEL:
-#  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
-  WEIGHTS: "R-50.pkl"
+  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
     DEPTH: 50
   FCOS:
     NUM_CLASSES: 3
 INPUT:
-  MIN_SIZE_TRAIN: (800,)
+  MIN_SIZE_TRAIN: (768,)
 DATASETS:
   TRAIN: ("fruits_nuts",)
   TEST: ("fruits_nuts", )
@@ -15,4 +14,8 @@ SOLVER:
   WARMUP_METHOD: "constant"
   WARMUP_FACTOR: 0.3333
   WARMUP_ITERS: 500
+  IMS_PER_BATCH: 2
+  AMP:
+    ENABLED: True
 OUTPUT_DIR: "output/fcos/R_50_1x"
+CUDNN_BENCHMARK: True

@@ -52,7 +52,7 @@ def custom_mapper(dataset_dict):
     dataset_dict = copy.deepcopy(dataset_dict)
     image = utils.read_image(dataset_dict["file_name"], format="BGR")
     transform_list = [
-        T.Resize((800, 800)),
+        T.Resize((512, 512)),
         T.RandomBrightness(0.8, 1.8),
         T.RandomContrast(0.6, 1.3),
         T.RandomSaturation(0.8, 1.4),
